@@ -3,8 +3,11 @@
 
   #include <stdint.h>
   #include <netinet/in.h>
+  #include <stddef.h>
   #include "lb_shm.h"
   #define LB_ADMIN_PATH_LEN 108
+  #define LB_CONFIG_ERR_LEN 256
+
 
   struct lb_config_backend {
       char               name[LB_NAME_LEN];
@@ -31,6 +34,8 @@
     char admin_socket[LB_ADMIN_PATH_LEN];
 };
 
+/* 0 = ok, *out suprascris; -1 = eroare, *out NEATINS, err = "file:line: message" */
+int lb_config_load(const char *path, struct lb_config *out, char *err, size_t errlen);
 int parse_long(const char *s, long min, long max, long *out);
 int parse_ip_port(const char *s, struct sockaddr_in *out);
 
