@@ -26,6 +26,9 @@ BACKEND_BIN := $(BACKEND_SRC:%.c=$(BUILD)/%)
 
 .PHONY: all clean test asan backends
 
+# Keep test and backend objects (chained pattern rules would delete them).
+.SECONDARY:
+
 all: lb lbctl
 
 $(CORE_LIB): $(CORE_OBJ)
