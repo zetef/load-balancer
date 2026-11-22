@@ -32,7 +32,8 @@ BACKEND_BIN := $(BACKEND_SRC:%.c=$(BUILD)/%)
 # Keep test and backend objects (chained pattern rules would delete them).
 .SECONDARY:
 
-all: lb lbctl stub_worker
+# backends: backend-urile de test (S4) sunt construite si de make simplu
+all: lb lbctl stub_worker backends
 
 $(CORE_LIB): $(CORE_OBJ)
 	ar rcs $@ $^
