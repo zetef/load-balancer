@@ -1,5 +1,6 @@
-/* Stub worker (C2): se ataseaza la regiune si o afiseaza in fiecare secunda.
- *   stub_worker [--shm <nume>] [--bump <slot>] [--lock-and-die]
+/* Stub worker (C2, C3): se ataseaza la regiune si o afiseaza.
+ *   stub_worker [--worker <i> --listen <ip:port> --shm <nume> --connect-timeout <ms> --idle-timeout <ms>]
+ *               [--bump <slot>] [--lock-and-die] [--crash-after <s>] [--exit-after <s> <cod>] [--ignore-term]
  * Test de versiune: compileaza cu -DSTUB_EXPECT_VERSION=2 (comanda e in documentul C1-C2). */
 #include <arpa/inet.h>
 #include <errno.h>
@@ -10,6 +11,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "shm.h"
@@ -38,8 +40,38 @@ struct local_copy {
 
 static void usage(const char *prog)
 {
-    fprintf(stderr, "usage: %s [--shm <name>] [--bump <slot>] [--lock-and-die]\n", prog);
+    fprintf(stderr, "usage: %s [--worker <i>] [--listen <ip:port>] [--shm <name>]\n"
+                    "       [--connect-timeout <ms>] [--idle-timeout <ms>]\n"
+                    "       [--bump <slot>] [--lock-and-die]\n"
+                    "       [--crash-after <s>] [--exit-after <s> <code>] [--ignore-term]\n", prog);
     exit(2);
+}
+
+static long arg_long(const char *prog, const char *opt, const char *s, long min, long max)
+{
+    char *end;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (*s == '\0' || *end != '\0' || errno != 0 || v < min || v > max) {
+        fprintf(stderr, "stub: %s needs a number %ld..%ld, got '%s'\n", opt, min, max, s);
+        usage(prog);
+    }
+    return v;
+}
+
+static long elapsed_s(const struct timespec *start)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (long)(now.tv_sec - start->tv_sec);
+}
+
+/* raise in loc de *(int *)0 = 0, care e UB */
+static void crash_now(void)
+{
+    signal(SIGSEGV, SIG_DFL);
+    raise(SIGSEGV);
+    _exit(1);
 }
 
 /* Workerul doar citeste: la EOWNERDEAD n-are ce repara (repair = NULL) */
@@ -116,23 +148,50 @@ int main(int argc, char **argv)
     const char *name = LB_SHM_NAME;
     long bump_slot = -1;
     int lock_and_die = 0;
+    long worker = -1;           /* -1 = pornit de mana */
+    long crash_after = -1;
+    long exit_after = -1, exit_code = 0;
+    int ignore_term = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--shm") == 0 && i + 1 < argc) {
             name = argv[++i];
         } else if (strcmp(argv[i], "--bump") == 0 && i + 1 < argc) {
-            char *end;
-            errno = 0;
-            bump_slot = strtol(argv[++i], &end, 10);
-            if (*end != '\0' || errno != 0 || bump_slot < 0 || bump_slot >= LB_MAX_BACKENDS) {
-                fprintf(stderr, "stub: --bump needs a slot 0..%d\n", LB_MAX_BACKENDS - 1);
-                return 2;
-            }
+            bump_slot = arg_long(argv[0], "--bump", argv[++i], 0, LB_MAX_BACKENDS - 1);
         } else if (strcmp(argv[i], "--lock-and-die") == 0) {
             lock_and_die = 1;
+        } else if (strcmp(argv[i], "--worker") == 0 && i + 1 < argc) {
+            worker = arg_long(argv[0], "--worker", argv[++i], 0, LB_MAX_WORKERS - 1);
+        } else if ((strcmp(argv[i], "--listen") == 0 ||
+                    strcmp(argv[i], "--connect-timeout") == 0 ||
+                    strcmp(argv[i], "--idle-timeout") == 0) && i + 1 < argc) {
+            i++;                /* stub-ul nu asculta pe niciun port */
+        } else if (strcmp(argv[i], "--crash-after") == 0 && i + 1 < argc) {
+            crash_after = arg_long(argv[0], "--crash-after", argv[++i], 0, 86400);
+        } else if (strcmp(argv[i], "--exit-after") == 0 && i + 2 < argc) {
+            exit_after = arg_long(argv[0], "--exit-after", argv[++i], 0, 86400);
+            exit_code  = arg_long(argv[0], "--exit-after", argv[++i], 0, 255);
+        } else if (strcmp(argv[i], "--ignore-term") == 0) {
+            ignore_term = 1;
         } else {
             usage(argv[0]);
         }
+    }
+
+    printf("stub: pid %d ppid %d argv:", (int)getpid(), (int)getppid());
+    for (int i = 0; i < argc; i++) {
+        printf(" %s", argv[i]);
+    }
+    printf("\n");
+    fflush(stdout);
+
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    if (crash_after == 0) {
+        crash_now();
+    }
+    if (exit_after == 0) {
+        return (int)exit_code;
     }
 
     /* fara O_CREAT: daca masterul nu ruleaza, numele nu exista */
@@ -191,7 +250,12 @@ int main(int argc, char **argv)
     memset(&sa, 0, sizeof sa);
     sa.sa_handler = on_stop;
     sigemptyset(&sa.sa_mask);
-    if (sigaction(SIGINT, &sa, NULL) == -1 || sigaction(SIGTERM, &sa, NULL) == -1) {
+    struct sigaction ign;
+    memset(&ign, 0, sizeof ign);
+    ign.sa_handler = SIG_IGN;
+    sigemptyset(&ign.sa_mask);
+    if (sigaction(SIGINT, &sa, NULL) == -1 ||
+        sigaction(SIGTERM, ignore_term ? &ign : &sa, NULL) == -1) {
         fprintf(stderr, "stub: sigaction: %s\n", strerror(errno));
         return 1;
     }
@@ -206,16 +270,32 @@ int main(int argc, char **argv)
     int ret = 0;
 
     while (!stop) {
+        if (crash_after >= 0 && elapsed_s(&start) >= crash_after) {
+            crash_now();
+        }
+        if (exit_after >= 0 && elapsed_s(&start) >= exit_after) {
+            ret = (int)exit_code;
+            break;
+        }
         uint64_t gen = atomic_load_explicit(&shm->generation, memory_order_acquire);
-        if (gen != lc.generation) {
+        int changed = gen != lc.generation;
+        if (changed) {
             int rc = copy_table(shm, &lc);
             if (rc != 0) {
                 ret = 1;
                 break;
             }
         }
-        print_table(shm, &lc);
+        if (worker < 0 || changed) {
+            if (worker >= 0) {
+                printf("stub[%ld]: ", worker);
+            }
+            print_table(shm, &lc);
+        }
         sleep(1);
+    }
+    if (stop && worker >= 0) {
+        printf("stub[%ld]: stop signal, exiting\n", worker);
     }
 
     if (bump_slot >= 0) {
