@@ -4,8 +4,9 @@
 #include <arpa/inet.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include "config.h"
 #include <errno.h>
+#include <limits.h>
+#include "config.h"
 
 #define MAX_TOKENS 8
 
@@ -209,8 +210,6 @@ static int parse_backend(struct parse_ctx *ctx, char **tok, int ntok)
     return 0;
 }
 
-
-#include <limits.h>
 static int parse_health(struct parse_ctx *ctx, char **tok, int ntok)
 {
     long interval, timeout, rise, fall;
@@ -277,17 +276,30 @@ static int parse_admin_socket(struct parse_ctx *ctx, char **tok, int ntok)
 }
 
 
+/* Tabela de directive: numele -> functia care o parseaza */
+typedef int (*directive_fn)(struct parse_ctx *ctx, char **tok, int ntok);
+
+static const struct {
+    const char  *name;
+    directive_fn fn;
+} directives[] = {
+    { "listen",       parse_listen },
+    { "workers",      parse_workers },
+    { "algorithm",    parse_algorithm },
+    { "backend",      parse_backend },
+    { "health",       parse_health },
+    { "timeout",      parse_timeout },
+    { "admin_socket", parse_admin_socket },
+};
+
 /* Cauta tok[0] in tabela si apeleaza handler-ul. */
 static int dispatch(struct parse_ctx *ctx, char **tok, int ntok)
 {
-    if (strcmp(tok[0], "listen") == 0)       return parse_listen(ctx, tok, ntok);
-    if (strcmp(tok[0], "workers") == 0)      return parse_workers(ctx, tok, ntok);
-    if (strcmp(tok[0], "algorithm") == 0)    return parse_algorithm(ctx, tok, ntok);
-    if (strcmp(tok[0], "backend") == 0)      return parse_backend(ctx, tok, ntok);
-    if (strcmp(tok[0], "health") == 0)       return parse_health(ctx, tok, ntok);
-    if (strcmp(tok[0], "timeout") == 0)      return parse_timeout(ctx, tok, ntok);
-    if (strcmp(tok[0], "admin_socket") == 0) return parse_admin_socket(ctx, tok, ntok);
-
+    for (size_t i = 0; i < sizeof directives / sizeof directives[0]; i++) {
+        if (strcmp(tok[0], directives[i].name) == 0) {
+            return directives[i].fn(ctx, tok, ntok);
+        }
+    }
     return set_err(ctx, "unknown directive '%s'", tok[0]);
 }
 
@@ -318,6 +330,16 @@ static int parse_line(struct parse_ctx *ctx, char *line)
     if (ntok < 0) {
         return set_err(ctx, "too many words on line");
     }
+
+#ifdef LB_CONFIG_DEBUG
+    /* make -B DEFS=-DLB_CONFIG_DEBUG BUILD=build-debug lb */
+    fprintf(stderr, "%d:", ctx->lineno);
+    for (int i = 0; i < ntok; i++) {
+        fprintf(stderr, "%s%s", i == 0 ? " " : " | ", tok[i]);
+    }
+    fprintf(stderr, "\n");
+#endif
+
     return dispatch(ctx, tok, ntok);
 }
 
