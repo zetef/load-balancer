@@ -1,5 +1,5 @@
 CC       := gcc
-CPPFLAGS := -Iinclude -D_GNU_SOURCE -MMD -MP
+CPPFLAGS := -Iinclude -D_GNU_SOURCE -MMD -MP $(DEFS)
 CFLAGS   := -std=c11 -Wall -Wextra -g -pthread $(SAN)
 LDFLAGS  := $(SAN)
 LDLIBS   := -pthread
@@ -18,6 +18,9 @@ MAIN_OBJ := $(LB_MAIN:%.c=$(BUILD)/%.o)
 
 LBCTL_OBJ := $(BUILD)/tools/lbctl.o
 
+# Stub worker (C2): attaches to the shm region and prints it; C3 execs it as the worker.
+STUB_OBJ  := $(BUILD)/tools/stub_worker.o
+
 TEST_SRC := $(wildcard tests/unit/test_*.c)
 TEST_BIN := $(TEST_SRC:%.c=$(BUILD)/%)
 
@@ -29,7 +32,7 @@ BACKEND_BIN := $(BACKEND_SRC:%.c=$(BUILD)/%)
 # Keep test and backend objects (chained pattern rules would delete them).
 .SECONDARY:
 
-all: lb lbctl
+all: lb lbctl stub_worker
 
 $(CORE_LIB): $(CORE_OBJ)
 	ar rcs $@ $^
@@ -44,6 +47,9 @@ lb: $(MAIN_OBJ) $(LB_OBJ) $(CORE_LIB)
 
 lbctl: $(LBCTL_OBJ) $(CORE_LIB)
 	$(CC) $(LDFLAGS) $(LBCTL_OBJ) $(CORE_LIB) $(LDLIBS) -o $@
+
+stub_worker: $(STUB_OBJ) $(CORE_LIB)
+	$(CC) $(LDFLAGS) $(STUB_OBJ) $(CORE_LIB) $(LDLIBS) -o $@
 
 $(BUILD)/tests/unit/%: $(BUILD)/tests/unit/%.o $(LB_OBJ) $(CORE_LIB)
 	$(CC) $(LDFLAGS) $< $(LB_OBJ) $(CORE_LIB) $(LDLIBS) -o $@
@@ -61,7 +67,7 @@ asan:
 	$(MAKE) BUILD=build-asan SAN="-fsanitize=address,undefined -fno-omit-frame-pointer" test
 
 clean:
-	rm -rf build build-asan lb lbctl
+	rm -rf build build-asan build-debug lb lbctl stub_worker
 
--include $(CORE_OBJ:.o=.d) $(LB_OBJ:.o=.d) $(MAIN_OBJ:.o=.d) $(LBCTL_OBJ:.o=.d) \
+-include $(CORE_OBJ:.o=.d) $(LB_OBJ:.o=.d) $(MAIN_OBJ:.o=.d) $(LBCTL_OBJ:.o=.d) $(STUB_OBJ:.o=.d) \
          $(TEST_BIN:=.d) $(BACKEND_BIN:=.d)

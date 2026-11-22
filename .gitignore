@@ -2,3 +2,5 @@
 /build-asan/
 /lb
 /lbctl
+/build-debug/
+/stub_worker
