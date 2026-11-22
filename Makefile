@@ -55,8 +55,8 @@ stub_worker: $(STUB_OBJ) $(CORE_LIB)
 $(BUILD)/tests/unit/%: $(BUILD)/tests/unit/%.o $(LB_OBJ) $(CORE_LIB)
 	$(CC) $(LDFLAGS) $< $(LB_OBJ) $(CORE_LIB) $(LDLIBS) -o $@
 
-$(BUILD)/tests/backends/%: $(BUILD)/tests/backends/%.o $(CORE_LIB)
-	$(CC) $(LDFLAGS) $< $(CORE_LIB) $(LDLIBS) -o $@
+$(BUILD)/tests/backends/%: $(BUILD)/tests/backends/%.o $(LB_OBJ) $(CORE_LIB)
+	$(CC) $(LDFLAGS) $< $(LB_OBJ) $(CORE_LIB) $(LDLIBS) -o $@
 
 # Each test is a program: exit status 0 = pass. Stop on the first failure.
 test: $(TEST_BIN)
