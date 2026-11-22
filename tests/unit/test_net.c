@@ -1,5 +1,6 @@
 /* lb_write_all through a socketpair: every byte arrives, in order. */
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -31,6 +32,16 @@ int main(void)
     /* Writing to a closed fd fails with -1. */
     assert(lb_write_all(-1, out, 1) == -1);
 
-    printf("ok  lb_write_all\n");
+    /* lb_set_nonblock: an empty pipe read returns EAGAIN instead of sleeping. */
+    int pp[2];
+    char c;
+    assert(pipe(pp) == 0);
+    assert(lb_set_nonblock(pp[0]) == 0);
+    assert(read(pp[0], &c, 1) == -1 && errno == EAGAIN);
+    assert(lb_set_nonblock(-1) == -1);
+    close(pp[0]);
+    close(pp[1]);
+
+    printf("ok  lb_write_all, lb_set_nonblock\n");
     return 0;
 }

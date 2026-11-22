@@ -1,6 +1,7 @@
 #include "net.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -44,4 +45,12 @@ fail: {
         errno = saved;
         return -1;
     }
+}
+
+int lb_set_nonblock(int fd)
+{
+    int flags = fcntl(fd, F_GETFL);
+    if (flags == -1)
+        return -1;
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
