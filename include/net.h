@@ -13,4 +13,8 @@ ssize_t lb_write_all(int fd, const void *buf, size_t len);
  * or -1 on error (errno set, no fd leaked). */
 int lb_listen_tcp(const struct sockaddr_in *addr, int backlog);
 
+/* Set O_NONBLOCK on the open file description of fd (keeps the other flags).
+ * Returns 0, or -1 with errno set. */
+int lb_set_nonblock(int fd);
+
 #endif
